@@ -14,7 +14,7 @@ class ChromaVectordb(IVectorDatabase):
         self.store=Chroma.from_documents(
           documents=docs,
           collection_name=self.collection_name,
-          embedding=self.embedding,
+          embedding=self.embedding.get_embedding(),
           persist_directory=self.persist_directory,
         )
         return self.store
