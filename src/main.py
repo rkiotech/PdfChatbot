@@ -16,21 +16,16 @@ from SementicsimEmbedding import SementicsimEmbedding
 from models import Prompt
 from pydantic import BaseModel, Field
 from PydanticParser import PydanticParser
+from DbManager import DbManager
 from models.Prompt import Prompt
 pd=PdfUploader()
 docs=pd.load_file("../doc.pdf")
 
-embed=SementicsimEmbedding()
-embed.create_embedding()
-embeding=embed.get_embedding()
-vectordb=ChromaVectordb(embeding, "sample_collection", "persist_directory")
-vectorStore=vectordb.vector_store(docs)
-print("Documents stored in vector database successfully.")
+dbm=DbManager(ChromaVectordb(SementicsimEmbedding(), "sample_collection", "persist_directory"),docs,MmrRetriver())
 
-ret=MmrRetriver()
-ret.set_retriver(vectorStore)
-retriver=ret.get_retriver()
-print("Retriever set successfully.")
+
+retriver=dbm.get_retriver()
+print("Retriever set successfully")
 
 
 # query = "What is the main topic of the document?"
