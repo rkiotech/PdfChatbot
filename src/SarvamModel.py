@@ -4,10 +4,11 @@ from MmrRetriver import MmrRetriver
 from abstractions.IParser import IParser
 from langchain.schema.runnable import RunnableLambda
 class SarvamModel(IModel):
-    def __init__(self,api_key: str,template ):
+    def __init__(self,api_key: str,prompt: str):
         
         self.api_key=api_key
-        self.model=template | RunnableLambda( lambda x :self.sarvam_llm(x))
+        self.prompt=prompt
+        self.model=None
     def sarvam_llm(self,input):
     # print(type(input),input)
         prompt=[{"content": input.text, "role": "user"}]
@@ -22,7 +23,10 @@ class SarvamModel(IModel):
         result=result.choices[0].message.content
     
         return result
-
+    def get_model(self):
+        """Gets the model."""
+        self.model = RunnableLambda(lambda x: self.sarvam_llm(x))
+        return self.model
     def getContext(self, content: str,retriver:MmrRetriver) -> str:
         """Returns the context of the model."""
         
@@ -32,7 +36,7 @@ class SarvamModel(IModel):
     def genResponse(self,content, context) -> str:
         """Generates a response based on the provided content."""
         # Assuming the model has a method to generate response
-     
-
+        template=self.prompt.get_template()
+        self.model = template | self.get_model()
         res=self.model.invoke({"user_input": content,"context": context})
         return res

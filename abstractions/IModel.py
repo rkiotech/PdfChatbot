@@ -7,7 +7,10 @@ class IModel(ABC):
         
         response=self.genResponse(content,context)
         return response
-       
+    @abstractmethod
+    def get_model(self):
+        """Gets the model."""
+        pass
     @abstractmethod
     def getContext(self,content:str,retriver) -> str:
         """Returns the context of the model."""
