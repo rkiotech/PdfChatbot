@@ -25,7 +25,8 @@ class SarvamModel(IModel):
         return result
     def get_model(self):
         """Gets the model."""
-        self.model = RunnableLambda(lambda x: self.sarvam_llm(x))
+        if self.model is None:
+           self.model = RunnableLambda(lambda x: self.sarvam_llm(x))
         return self.model
     def getContext(self, content: str,retriver:MmrRetriver) -> str:
         """Returns the context of the model."""
@@ -37,6 +38,9 @@ class SarvamModel(IModel):
         """Generates a response based on the provided content."""
         # Assuming the model has a method to generate response
         template=self.prompt.get_template()
-        self.model = template | self.get_model()
-        res=self.model.invoke({"user_input": content,"context": context})
+        chain = template | self.get_model()
+        print(content)
+        res=chain.invoke({"user_input": content,"context": context})
+        print(res)
+
         return res
