@@ -10,7 +10,7 @@ class Prompt():
         self.template= PromptTemplate(
         template=f"{self.prompt_text} {{format_instructions}}",
         input_variables=self.input_variables,
-        partial_variables={"format_instructions": self.parser.get_parser().get_format_instructions()})
+        partial_variables={"format_instructions": self.parser.get_format_instructions()})
         return self.template
        
 

@@ -1,3 +1,5 @@
 .env
 doc.pdf
 src/persist_directory
+*.pyc
+*/__pycache__
