@@ -8,7 +8,14 @@ class SarvamModel(IModel):
         
         self.api_key=api_key
         self.prompt=prompt
-        self.model=None
+        self.model=RunnableLambda(lambda x: self.sarvam_llm(x))
+    def invoke(self, content: str,retriver:MmrRetriver) -> str:
+        """Invokes the model with the provided content and returns the response."""
+        context=self.getContext(content,retriver=retriver)
+        
+        response=self.genResponse(content,context)
+        
+        return response
     def sarvam_llm(self,input):
     # print(type(input),input)
         prompt=[{"content": input.text, "role": "user"}]
@@ -38,9 +45,6 @@ class SarvamModel(IModel):
         """Generates a response based on the provided content."""
         # Assuming the model has a method to generate response
         template=self.prompt.get_template()
-        chain = template | self.get_model()
-        print(content)
+        chain = template | self.model 
         res=chain.invoke({"user_input": content,"context": context})
-        print(res)
-
         return res

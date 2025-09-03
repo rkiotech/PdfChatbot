@@ -12,5 +12,6 @@ class Prompt():
         input_variables=self.input_variables,
         partial_variables={"format_instructions": self.parser.get_format_instructions()})
         return self.template
-       
+    def get_parser(self):
+        return self.parser.get_parser()
 

@@ -1,12 +1,9 @@
 from abc import ABC, abstractmethod
 class IModel(ABC):
-
+    @abstractmethod
     def invoke(self, content:str,retriver) -> str:
         """Invokes the model with the provided content and returns the response."""
-        context=self.getContext(content,retriver=retriver)
-        
-        response=self.genResponse(content,context)
-        return response
+
     @abstractmethod
     def get_model(self):
         """Gets the model."""
