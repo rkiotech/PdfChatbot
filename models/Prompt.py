@@ -7,10 +7,13 @@ class Prompt():
         self.parser = parser
 
     def get_template(self):
+        partial_variables={"format_instructions": ""}
+        if self.parser is not None:
+           partial_variables={"format_instructions": self.parser.get_format_instructions()}
         self.template= PromptTemplate(
         template=f"{self.prompt_text} {{format_instructions}}",
         input_variables=self.input_variables,
-        partial_variables={"format_instructions": self.parser.get_format_instructions()})
+        partial_variables=partial_variables)
         return self.template
     def get_parser(self):
         return self.parser.get_parser()

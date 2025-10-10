@@ -1,9 +1,9 @@
-from abstractions.IModel import IModel
+from abstractions.IcontextModel import IcontextModel
 from sarvamai import SarvamAI
 from MmrRetriver import MmrRetriver
 from abstractions.IParser import IParser
 from langchain.schema.runnable import RunnableLambda
-class SarvamModel(IModel):
+class SarvamModel(IcontextModel):
     def __init__(self,api_key: str,prompt: str):
         
         self.api_key=api_key

@@ -53,9 +53,9 @@ print("Prompt template created successfully.")
 
 
 model=SarvamModel(api_key="sk_e9hrwjet_SJrtYF4VYTYd474dsVN5Krd4",prompt=prompt)
-
-
-
+user_input="what is the document about"
+response = model.invoke(user_input, retriver=retriver)
+print(response)
 @app.route('/upload', methods=['POST'])
 def upload_file():
     if 'file' not in request.files:
