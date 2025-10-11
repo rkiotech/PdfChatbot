@@ -9,9 +9,11 @@ from langchain_core.messages import BaseMessage
 from sarvamai import SarvamAI
 # from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.checkpoint.sqlite import SqliteSaver
+import sqlite3
 from langgraph.graph.message import add_messages
 from dotenv import load_dotenv
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage,HumanMessage
 from pydantic import BaseModel, Field
 from langchain_core.output_parsers import PydanticOutputParser
 from fastapi import FastAPI
@@ -77,25 +79,27 @@ print("Prompt template created successfully.")
 # graph.add_edge('combine_content', END)
 def chat_node(state: ChatState):
     user_input = state['messages']
+    print(user_input)
 
-
-    prompt_text= f"generate a joke on the topic {user_input}"
+    prompt_text= f"Answer following user query: {user_input[-1].content}"
     prompt=Prompt(prompt_text,parser=None,input_variables=["user_input"])
     model=NormalModel(api_key="sk_e9hrwjet_SJrtYF4VYTYd474dsVN5Krd4",prompt=prompt)
     response=model.invoke()
-    return {"messages": [response]}
+    return {"messages": [user_input[0], AIMessage(content=response)]}
 
 # Checkpointer
-checkpointer = InMemorySaver()
+# checkpointer = InMemorySaver()
 
 graph = StateGraph(ChatState)
 graph.add_node("chat_node", chat_node)
 graph.add_edge(START, "chat_node")
 graph.add_edge("chat_node", END)
-checkpointer = InMemorySaver()
-
-
-
+# checkpointer = InMemorySaver()
+conn = sqlite3.connect(database='chatbot.db', check_same_thread=False)
+# Checkpointer
+checkpointer = SqliteSaver(conn=conn)
+print(type(checkpointer))
+user_id="523"
 
 
 workflow = graph.compile(checkpointer=checkpointer)
@@ -106,14 +110,19 @@ class TopicHistory(BaseModel):
 
       id: str = Field(..., example="1")
 class TopicInput(BaseModel):
-    topic: str = Field(..., example="pizza")
+    user_input: str = Field(..., example="what is capital of Delhi?")
     id: str = Field(..., example="1")
+def retrieve_all_threads():
+    all_threads = set()
+    for checkpoint in checkpointer.list(None):
+        all_threads.add(checkpoint.config['configurable']['thread_id'])
 
+    return list(all_threads)
 @app.post("/invoke")
 def invoke_workflow(data: TopicInput):
     config1 = {"configurable": {"thread_id": data.id}}
 
-    response=workflow.invoke({'topic':data.topic}, config=config1)
+    response=workflow.invoke({'messages':data.user_input}, config=config1)
     return response
 @app.post("/history")
 def invoke_workflow(data: TopicHistory):
@@ -127,6 +136,11 @@ def invoke_workflow(data: LastConversation):
 
     state=list(workflow.get_state(config=config))
     return state[0].get('messages',[])
+@app.get("/all_threads")
+def invoke_workflow():
+    threads = retrieve_all_threads()
+    return threads
+
 
 # config1 = {"configurable": {"thread_id": "1"}}
 
