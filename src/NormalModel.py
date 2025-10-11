@@ -17,7 +17,7 @@ class NormalModel(IModel):
         chain = template | self.model 
 
         # chain = self.model 
-        response=chain.invoke({"user_input":content})
+        response=chain.invoke({"user_input":content,"tools":""})
         
         return response
     def sarvam_llm(self,user_input):

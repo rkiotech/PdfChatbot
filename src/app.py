@@ -35,35 +35,49 @@ class JokeState(TypedDict):
     messages: Annotated[list[BaseMessage], add_messages]
 
 
+class ToolCall(BaseModel):
+     content: str = Field(default="", description="Content from the model")
+     tool_called:bool=Field(default=False, description="Whether a tool was called or not")
+     tool_name: str = Field(default="", description="Name of the tool called")
+     input_schema:dict=Field(default={}, description="Input schema for the tool")
+
+parser=PydanticOutputParser(pydantic_object=ToolCall)
 class ChatState(TypedDict):
     messages: Annotated[list[BaseMessage], add_messages]
+    user_id: str=Field(..., example="523")
+    tools_list:list=Field(default=[], description="List of tools available")
+    tool_name: str = Field(default="", description="Name of the tool called")
+    input_schema:dict=Field(default={}, description="Input schema for the tool")
+    # tool_called:bool=Field(default=False, description="Whether a tool was called or not")
 
 
 
 
 
-def generate_joke(state: JokeState):
-    user_input=state["topic"]
-    prompt_text= f"generate a joke on the topic {user_input}"
-    prompt=Prompt(prompt_text,parser=None,input_variables=["user_input"])
-    model=NormalModel(api_key="sk_e9hrwjet_SJrtYF4VYTYd474dsVN5Krd4",prompt=prompt)
-    response=model.invoke()
 
-    return {'joke': response}
-def generate_explanation(state: JokeState):
 
-    user_input=state["joke"]
-    prompt_text= f"generate a joke on the topic {user_input}"
-    prompt=Prompt(prompt_text,parser=None,input_variables=["user_input"])
-    model=NormalModel(api_key="sk_e9hrwjet_SJrtYF4VYTYd474dsVN5Krd4",prompt=prompt)
-    response=model.invoke()
+# def generate_joke(state: JokeState):
+#     user_input=state["topic"]
+#     prompt_text= f"generate a joke on the topic {user_input}"
+#     prompt=Prompt(prompt_text,parser=None,input_variables=["user_input"])
+#     model=NormalModel(api_key="sk_e9hrwjet_SJrtYF4VYTYd474dsVN5Krd4",prompt=prompt)
+#     response=model.invoke()
+
+#     return {'joke': response}
+# def generate_explanation(state: JokeState):
+
+#     user_input=state["joke"]
+#     prompt_text= f"generate a joke on the topic {user_input}"
+#     prompt=Prompt(prompt_text,parser=None,input_variables=["user_input"])
+#     model=NormalModel(api_key="sk_e9hrwjet_SJrtYF4VYTYd474dsVN5Krd4",prompt=prompt)
+#     response=model.invoke()
     
-    return {'explanation': response}
+#     return {'explanation': response}
 
-def combine_content(state: JokeState):
-    content="topic :"+" "+state['topic']+" ,"+"joke :"+" "+state["joke"] + " ," + "explanation :"+" "+state["explanation"]
-    return {'messages': [AIMessage(content=content)]}
-print("Prompt template created successfully.")
+# def combine_content(state: JokeState):
+#     content="topic :"+" "+state['topic']+" ,"+"joke :"+" "+state["joke"] + " ," + "explanation :"+" "+state["explanation"]
+#     return {'messages': [AIMessage(content=content)]}
+# print("Prompt template created successfully.")
 
 
 
@@ -77,32 +91,91 @@ print("Prompt template created successfully.")
 # graph.add_edge('generate_joke', 'generate_explanation')
 # graph.add_edge('generate_explanation', 'combine_content')
 # graph.add_edge('combine_content', END)
+import json
 def chat_node(state: ChatState):
     user_input = state['messages']
-    print(user_input)
+    tools_list=state['tools_list']
 
-    prompt_text= f"Answer following user query: {user_input[-1].content}"
-    prompt=Prompt(prompt_text,parser=None,input_variables=["user_input"])
+
+    tool_info = [f"name:{t.name} — description:{t.description} — input_schema:{t.inputSchema['properties']}" for t in tools_list]
+    tools = "\n".join(tool_info)
+    print("Available tools:", tools)
+    # print(user_input)
+
+    prompt_text= f"Answer following user query with given provided tools {{tools}} : {user_input[-1].content}"
+
+    prompt=Prompt(prompt_text,parser=parser,input_variables=["tools","user_input"])
     model=NormalModel(api_key="sk_e9hrwjet_SJrtYF4VYTYd474dsVN5Krd4",prompt=prompt)
     response=model.invoke()
-    return {"messages": [user_input[0], AIMessage(content=response)]}
+    response=response.replace('```json','')
+    response=response.replace('```','')
+
+    response=json.loads(response)
+
+    print("Response from model:", response)
+    # return {"messages": [user_input[0], AIMessage(content=response)]}
+    return {"messages": [user_input[0], AIMessage(content=response['content'])],"tool_name": response['tool_name'],"input_schema":response['input_schema'],"tool_called":response['tool_called']}
 
 # Checkpointer
 # checkpointer = InMemorySaver()
+from fastmcp import Client
+import asyncio
+async def main():
+    # Connect via stdio to a local script
+    # if state['tools_list']:
+    #     return {'tools_list': state['tools_list']}
+        
 
+    async with Client("server.py") as client:
+        tools = await client.list_tools()
+        # print(f"Available tools: {tools}")
+    return tools
+
+def tool_list(state: ChatState):
+    tools=asyncio.run(main())
+    return {'tools_list': tools}
+
+def tool_condition(state: ChatState):
+    print("Tool condition check:", state['tool_called'])
+    if state.get('tool_called', False):
+        return 'tool_call'
+    else:
+        return END
+async def tool_call_main(state: ChatState):
+          async with Client("server.py") as client:
+               result = await client.call_tool(state['tool_name'], state['input_schema'])
+          return result
+def tool_call(state: ChatState):
+    result=asyncio.run(tool_call_main(state))
+    print("Tool call result:", result)
+    return {'messages': [AIMessage(content=result)]}
+        # result = await client.call_tool("random_number", {})
+        # print(f"Result: {result.content[0].text}")
 graph = StateGraph(ChatState)
+graph.add_node('list_tools', tool_list)
+
 graph.add_node("chat_node", chat_node)
-graph.add_edge(START, "chat_node")
+graph.add_node("tool_call", tool_call)
+
+
+graph.add_edge(START, 'list_tools')
+
+graph.add_edge('list_tools', 'chat_node')
+
+graph.add_conditional_edges('chat_node', tool_condition)
+# graph.add_edge('tool_call', END)
+# graph.add_edge(START, "chat_node")
 graph.add_edge("chat_node", END)
 # checkpointer = InMemorySaver()
 conn = sqlite3.connect(database='chatbot.db', check_same_thread=False)
 # Checkpointer
 checkpointer = SqliteSaver(conn=conn)
-print(type(checkpointer))
-user_id="523"
+# print(type(checkpointer))
+# user_id="523"
 
 
 workflow = graph.compile(checkpointer=checkpointer)
+print(workflow)
 class LastConversation(BaseModel):
       id: str = Field(..., example="1")
 
@@ -118,21 +191,21 @@ def retrieve_all_threads():
         all_threads.add(checkpoint.config['configurable']['thread_id'])
 
     return list(all_threads)
-@app.post("/invoke")
-def invoke_workflow(data: TopicInput):
-    config1 = {"configurable": {"thread_id": data.id}}
+@app.post("/invoke/{user_id}")
+def invoke_workflow(data: TopicInput,user_id: str):
+    config = {"configurable": {"thread_id": user_id+"@"+data.id}}
 
-    response=workflow.invoke({'messages':data.user_input}, config=config1)
+    response=workflow.invoke({'messages':data.user_input,'user_id':user_id}, config=config)
     return response
-@app.post("/history")
-def invoke_workflow(data: TopicHistory):
-    config = {"configurable": {"thread_id": data.id}}
+@app.post("/history/{user_id}")
+def invoke_workflow(data: TopicHistory,user_id: str):
+    config = {"configurable": {"thread_id":  user_id+"@"+data.id}}
 
     response=list(workflow.get_state_history(config))
     return response
-@app.post("/load_conversation")
-def invoke_workflow(data: LastConversation):
-    config = {"configurable": {"thread_id": data.id}}
+@app.post("/load_conversation/{user_id}")
+def invoke_workflow(data: LastConversation,user_id: str):
+    config = {"configurable": {"thread_id": user_id+"@"+data.id}}
 
     state=list(workflow.get_state(config=config))
     return state[0].get('messages',[])
@@ -155,5 +228,5 @@ def invoke_workflow():
 #              print(chunk,end=' ')
 # print(response)
 
-# if __name__ == "__main__":
-#     app.run(host="0.0.0.0", port=8000)
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=8000)
