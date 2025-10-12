@@ -14,7 +14,7 @@ import sqlite3
 from langgraph.graph.message import add_messages
 from dotenv import load_dotenv
 from langchain_core.messages import AIMessage,HumanMessage
-from typing import Literal
+from typing import Literal,Union
 from pydantic import BaseModel, Field
 from langchain_core.output_parsers import PydanticOutputParser
 from fastapi import FastAPI
@@ -34,14 +34,22 @@ class JokeState(TypedDict):
     joke: str
     explanation: str
     messages: Annotated[list[BaseMessage], add_messages]
+class RandomNumberInput(BaseModel):
+    pass
 
+class BringTodoItemInput(BaseModel):
+    id: int
+
+class SpecialAddInput(BaseModel):
+    a: int
+    b: int
 
 class ToolCall(BaseModel):
      content: str = Field(default="", description="Content from the model")
      tool_called:Literal["True", "False"]=Field( description="Whether a provided tool used or not")
      tool_name: Literal["random_number","bring_todo_item","special_add"]=Field( description="Name of the tool called")
 
-     input_schema:dict=Field(default={}, description="Input schema for the tool in format {'parameter_name1': 'value','parameter_name2': 'value'} only")
+     input_schema: Union[RandomNumberInput, BringTodoItemInput, SpecialAddInput]=Field(default={}, description="Input schema for the tool in format {'parameter_name1': 'value','parameter_name2': 'value'} only")
 
 
 parser=PydanticOutputParser(pydantic_object=ToolCall)
@@ -52,7 +60,7 @@ class ChatState(TypedDict):
     tools_list:list=Field(default=[], description="List of tools available")
     tool_name: Literal["random_number","bring_todo_item","special_add"]=Field( description="Name of the tool called")
 
-    input_schema:dict=Field(default={}, description="Input schema for the tool in format {'parameter_name1': 'value','parameter_name2': 'value'} only")
+    input_schema:Union[RandomNumberInput, BringTodoItemInput, SpecialAddInput]=Field(default={}, description="Input schema for the tool in format {'parameter_name1': 'value','parameter_name2': 'value'} only")
 
 
 
@@ -100,14 +108,30 @@ def chat_node(state: ChatState):
     user_input = state['messages']
     tools_list=state['tools_list']
 
-    print("Available tools:", tools_list)
+    # print("Available tools:", tools_list)
     # print(user_input)
     tool_info = [f"ID of tool:{idx} - tool name: {t.name} — tool description: {t.description} — input_schema: {t.inputSchema['properties']}" for idx,t in enumerate(tools_list)]
     tools = "\n".join(tool_info)
     print("Available tools:", tools)
     # print(user_input)
 
-    prompt_text= f"Answer following user query with given provided tools ,also tell possible given tool can be used {{tools}} if have to use tool then inform : {user_input[-1].content}"
+    prompt_text= f"""
+You are given these tools:
+{{tools}}
+
+Each tool has a specific input schema. 
+When you output your result, make sure your "input_schema" strictly follows the tool's defined schema. 
+Do not create new keys or arrays.
+RULE:
+if use same variable name that mentions in input schema of tool.
+if the user query is not related to any tool then do not call any tool and give answer
+
+
+
+Now answer the following user query using the provided tools if necessary:
+{user_input[-1].content}
+"""
+
     # prompt_text= f"Give name of tool that can be possibly use for given user query  tools:{{tools}} user query : {user_input[-1].content}"
 
     prompt=Prompt(prompt_text,parser=parser,input_variables=["tools","user_input"])
@@ -146,7 +170,7 @@ def tool_list(state: ChatState):
     return {'tools_list': tools}
 
 def tool_condition(state: ChatState):
-    print("Tool condition check:", state.get('tool_called', 'False'),state)
+    print("Tool condition check:", state.get('tool_called', 'False'))
     if state.get('tool_called', 'False')=='True':
         return 'tool_call'
     else:

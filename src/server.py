@@ -13,13 +13,13 @@ def random_number():
 
 @mcp.tool
 def special_add(a: int, b: int):
-    """Add two numbers together. and b are integers."""
+    """Add two numbers together. a and b are integers."""
     return a + b
 
 @mcp.tool
-def bring_todo_item(item_number: int):
+def bring_todo_item(id: int):
     """To fetch an item, use the bring_todo_item tool with the parameter item (integer)."""
-    response=requests.get(f"https://jsonplaceholder.typicode.com/todos/{item_number}")
+    response=requests.get(f"https://jsonplaceholder.typicode.com/todos/{id}")
     if response.status_code != 200:
         return "Item not found."
     data = response.json()
