@@ -14,6 +14,7 @@ import sqlite3
 from langgraph.graph.message import add_messages
 from dotenv import load_dotenv
 from langchain_core.messages import AIMessage,HumanMessage
+from typing import Literal
 from pydantic import BaseModel, Field
 from langchain_core.output_parsers import PydanticOutputParser
 from fastapi import FastAPI
@@ -37,18 +38,21 @@ class JokeState(TypedDict):
 
 class ToolCall(BaseModel):
      content: str = Field(default="", description="Content from the model")
-     tool_called:bool=Field(default=False, description="Whether a tool was called or not")
-     tool_name: str = Field(default="", description="Name of the tool called")
-     input_schema:dict=Field(default={}, description="Input schema for the tool")
+     tool_called:Literal["True", "False"]=Field( description="Whether a provided tool used or not")
+     tool_name: Literal["random_number","bring_todo_item","special_add"]=Field( description="Name of the tool called")
+
+     input_schema:dict=Field(default={}, description="Input schema for the tool in format {'parameter_name1': 'value','parameter_name2': 'value'} only")
+
 
 parser=PydanticOutputParser(pydantic_object=ToolCall)
 class ChatState(TypedDict):
     messages: Annotated[list[BaseMessage], add_messages]
     user_id: str=Field(..., example="523")
+    tool_called:Literal["True", "False"]=Field( description="Whether a provided tool used or not")
     tools_list:list=Field(default=[], description="List of tools available")
-    tool_name: str = Field(default="", description="Name of the tool called")
-    input_schema:dict=Field(default={}, description="Input schema for the tool")
-    # tool_called:bool=Field(default=False, description="Whether a tool was called or not")
+    tool_name: Literal["random_number","bring_todo_item","special_add"]=Field( description="Name of the tool called")
+
+    input_schema:dict=Field(default={}, description="Input schema for the tool in format {'parameter_name1': 'value','parameter_name2': 'value'} only")
 
 
 
@@ -96,25 +100,31 @@ def chat_node(state: ChatState):
     user_input = state['messages']
     tools_list=state['tools_list']
 
-
-    tool_info = [f"name:{t.name} — description:{t.description} — input_schema:{t.inputSchema['properties']}" for t in tools_list]
+    print("Available tools:", tools_list)
+    # print(user_input)
+    tool_info = [f"ID of tool:{idx} - tool name: {t.name} — tool description: {t.description} — input_schema: {t.inputSchema['properties']}" for idx,t in enumerate(tools_list)]
     tools = "\n".join(tool_info)
     print("Available tools:", tools)
     # print(user_input)
 
-    prompt_text= f"Answer following user query with given provided tools {{tools}} : {user_input[-1].content}"
+    prompt_text= f"Answer following user query with given provided tools ,also tell possible given tool can be used {{tools}} if have to use tool then inform : {user_input[-1].content}"
+    # prompt_text= f"Give name of tool that can be possibly use for given user query  tools:{{tools}} user query : {user_input[-1].content}"
 
     prompt=Prompt(prompt_text,parser=parser,input_variables=["tools","user_input"])
     model=NormalModel(api_key="sk_e9hrwjet_SJrtYF4VYTYd474dsVN5Krd4",prompt=prompt)
     response=model.invoke()
+    print("Raw response from model:", response)
     response=response.replace('```json','')
     response=response.replace('```','')
 
     response=json.loads(response)
 
-    print("Response from model:", response)
+    # print("Response from model:", response)
     # return {"messages": [user_input[0], AIMessage(content=response)]}
-    return {"messages": [user_input[0], AIMessage(content=response['content'])],"tool_name": response['tool_name'],"input_schema":response['input_schema'],"tool_called":response['tool_called']}
+    if response['content']!='':
+       return {"messages": [user_input[0], AIMessage(content=response['content'])],"tool_name": response['tool_name'],"input_schema":response['input_schema'],"tool_called":response['tool_called']}
+    else:
+        return {"messages": [user_input[0]],"tool_name": response['tool_name'],"input_schema":response['input_schema'],"tool_called":response['tool_called']}
 
 # Checkpointer
 # checkpointer = InMemorySaver()
@@ -136,8 +146,8 @@ def tool_list(state: ChatState):
     return {'tools_list': tools}
 
 def tool_condition(state: ChatState):
-    print("Tool condition check:", state['tool_called'])
-    if state.get('tool_called', False):
+    print("Tool condition check:", state.get('tool_called', 'False'),state)
+    if state.get('tool_called', 'False')=='True':
         return 'tool_call'
     else:
         return END
@@ -147,8 +157,8 @@ async def tool_call_main(state: ChatState):
           return result
 def tool_call(state: ChatState):
     result=asyncio.run(tool_call_main(state))
-    print("Tool call result:", result)
-    return {'messages': [AIMessage(content=result)]}
+    print("Tool call result:", AIMessage(content=result.content[0].text))
+    return {'messages': [AIMessage(content=result.content[0].text)]}
         # result = await client.call_tool("random_number", {})
         # print(f"Result: {result.content[0].text}")
 graph = StateGraph(ChatState)
@@ -163,7 +173,7 @@ graph.add_edge(START, 'list_tools')
 graph.add_edge('list_tools', 'chat_node')
 
 graph.add_conditional_edges('chat_node', tool_condition)
-# graph.add_edge('tool_call', END)
+graph.add_edge('tool_call', END)
 # graph.add_edge(START, "chat_node")
 graph.add_edge("chat_node", END)
 # checkpointer = InMemorySaver()
@@ -196,6 +206,9 @@ def invoke_workflow(data: TopicInput,user_id: str):
     config = {"configurable": {"thread_id": user_id+"@"+data.id}}
 
     response=workflow.invoke({'messages':data.user_input,'user_id':user_id}, config=config)
+    item = response.get('messages', [])
+    # print("Final response:", item)
+    response['messages'] = item[::-1]  # Reverse the messages list to have the latest message first
     return response
 @app.post("/history/{user_id}")
 def invoke_workflow(data: TopicHistory,user_id: str):

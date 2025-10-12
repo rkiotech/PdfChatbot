@@ -16,5 +16,5 @@ class Prompt():
         partial_variables=partial_variables)
         return self.template
     def get_parser(self):
-        return self.parser.get_parser()
+        return self.parser
 
