@@ -88,11 +88,11 @@ def convert_messages_to_dict(messages):
     return formatted
 def chat_node(state: ChatState):
     user_input = state['messages']
-    tools_list=state['tools_list']
+    tools=state['tools_list']
     # user_input=convert_messages_to_dict(user_input)
     print("User input:", user_input)
-    tool_info = [f"ID of tool:{idx} - tool name: {t.name} — tool description: {t.description} — input_schema: {t.inputSchema['properties']}" for idx,t in enumerate(tools_list)]
-    tools = "\n".join(tool_info)
+    # tool_info = [f"ID of tool:{idx} - tool name: {t.name} — tool description: {t.description} — input_schema: {t.inputSchema['properties']}" for idx,t in enumerate(tools_list)]
+    # tools = "\n".join(tool_info)
     # print("Available tools:", tools)
     # print(user_input)
 
@@ -130,10 +130,10 @@ Now answer the following user query using the provided tools if necessary:
 
     print("Response from model:", response)
 
-    if response['content']!='':
-       return {"messages": [user_input[0], AIMessage(content=response['content'])],'tool_selected':response['tool_selected'],'tool_name':response['tool_name']}
+    if response['tool_called']!='True':
+       return {"messages": [user_input[0], AIMessage(content=response['content'])],"tool_called":response['tool_called']}
     else:
-        return {"messages": [user_input[0]],"tool_called":response['tool_called'],'tool_selected':response['tool_selected'],'tool_name':response['tool_name']}
+        return {"tool_called":response['tool_called'],'tool_selected':response['tool_selected'],'tool_name':response['tool_name']}
 
 
 from fastmcp import Client
