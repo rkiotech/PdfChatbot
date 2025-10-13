@@ -9,20 +9,21 @@ class NormalModel(IModel):
         self.api_key=api_key
         self.prompt=prompt
         self.model=RunnableLambda(lambda x:self.sarvam_llm(x))
-    def invoke(self, content="") -> str:
+    def invoke(self, user_input,tools) -> str:
         """Invokes the model with the provided content and returns the response."""
         # context=self.getContext(content,retriver=retriver)
         template=self.prompt.get_template()
         # print(template)
         chain = template | self.model 
-
+        # print("Prompt template:", template)
+        # print("Content passed to model:", user_input)
         # chain = self.model 
-        response=chain.invoke({"user_input":content,"tools":""})
+        response=chain.invoke({"user_input":user_input,"tools":tools})
         
         return response
     def sarvam_llm(self,user_input):
     # print(type(input),input)
-      
+        print("User input inside model:", user_input)
         prompt=[{"content": user_input.text, "role": "user"}]
     # print(text)
 

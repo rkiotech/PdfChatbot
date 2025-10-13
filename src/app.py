@@ -29,34 +29,78 @@ class BringTodoItemInput(BaseModel):
 class SpecialAddInput(BaseModel):
     a: int
     b: int
+class ReadFileInput(BaseModel):
+    file_path: str
+
+class GetFilePathInput(BaseModel):
+    name: str
 global_tool_list=[]
 class ToolCall(BaseModel):
      content: str = Field(default="", description="Content from the model")
      tool_called:Literal["True", "False"]=Field( description="Whether a provided tool used or not")
-
-     tool_selected: list = Field(default=global_tool_list, description="Description of the tool selected") 
+     tool_name:Literal["random_number","bring_todo_item","special_add","read_file","get_file_path"]=Field(default="None", description="Name of the tool used")
+     tool_selected: Union[ReadFileInput,SpecialAddInput,BringTodoItemInput,RandomNumberInput,GetFilePathInput] = Field(default=[], description="Description of the tool selected") 
 parser=PydanticOutputParser(pydantic_object=ToolCall)
 class ChatState(TypedDict):
     messages: Annotated[list[BaseMessage], add_messages]
     user_id: str=Field(..., example="523")
     tool_called:None
     tools_list:None
+    tool_name:None
     tool_selected:None
+def sarvam_llm(api_key,prompt):
+    # print(type(input),input)
+        # print("User input inside model:", user_input)
+        # prompt=[{"content": user_input.text, "role": "user"}]
+    # print(text)
 
+        client = SarvamAI(
+        api_subscription_key=api_key,
+        )
+        # client.chat.completions()
+        # output=client.chat.completions(
+        #     stream=True,
+        # messages=prompt)
+        result=client.chat.completions(
+            
+        messages=prompt)
+        
+        # print("************",output)
+        result=result.choices[0].message.content
+    
+        return result
 
 import json
+def convert_messages_to_dict(messages):
+    """
+    Convert LangChain message objects (HumanMessage, AIMessage)
+    into a list of dicts with 'role' and 'content'.
+    """
+    formatted = []
+    for msg in messages:
+        if isinstance(msg, HumanMessage):
+            formatted.append({"role": "user", "content": msg.content})
+        elif isinstance(msg, AIMessage):
+            formatted.append({"role": "assistant", "content": msg.content})
+        else:
+            # fallback for system or unknown message types
+            formatted.append({"role": "system", "content": msg.content})
+    return formatted
 def chat_node(state: ChatState):
     user_input = state['messages']
     tools_list=state['tools_list']
-
+    # user_input=convert_messages_to_dict(user_input)
+    print("User input:", user_input)
     tool_info = [f"ID of tool:{idx} - tool name: {t.name} — tool description: {t.description} — input_schema: {t.inputSchema['properties']}" for idx,t in enumerate(tools_list)]
     tools = "\n".join(tool_info)
-    print("Available tools:", tools)
+    # print("Available tools:", tools)
     # print(user_input)
 
-    prompt_text= f"""
+    # ans=sarvam_llm(api_key="sk_e9hrwjet_SJrtYF4VYTYd474dsVN5Krd4",prompt=user_input)
+    # print("Sarvam LLM response:", ans)
+    prompt_text= """
 You are given these tools:
-{{tools}}
+{tools}
 
 Each tool has a specific input schema. 
 When you output your result, make sure your "input_schema" strictly follows the tool's defined schema. 
@@ -64,18 +108,20 @@ Do not create new keys or arrays.
 RULE:
 if use same variable name that mentions in input schema of tool.
 if the user query is not related to any tool then do not call any tool and give answer
-
-
+If thier is required to call multiple tools then call respectively to provide answer
+Retrive file path if user want to read file
+Read file at given path and give content of file if user give path of file
 
 Now answer the following user query using the provided tools if necessary:
-{user_input[-1].content}
-"""
+{user_input}
 
+"""
+    # my_prompt="""give answer {user_input}"""
     # prompt_text= f"Give name of tool that can be possibly use for given user query  tools:{{tools}} user query : {user_input[-1].content}"
 
     prompt=Prompt(prompt_text,parser=parser,input_variables=["tools","user_input"])
     model=NormalModel(api_key="sk_e9hrwjet_SJrtYF4VYTYd474dsVN5Krd4",prompt=prompt)
-    response=model.invoke()
+    response=model.invoke(user_input=user_input,tools=tools)
 
     response=response.replace('```json','')
     response=response.replace('```','')
@@ -85,9 +131,9 @@ Now answer the following user query using the provided tools if necessary:
     print("Response from model:", response)
 
     if response['content']!='':
-       return {"messages": [user_input[0], AIMessage(content=response['content'])],"tool_called":response['tool_called'],'tool_selected':response['tool_selected']}
+       return {"messages": [user_input[0], AIMessage(content=response['content'])],'tool_selected':response['tool_selected'],'tool_name':response['tool_name']}
     else:
-        return {"messages": [user_input[0]],"tool_called":response['tool_called'],'tool_selected':response['tool_selected']}
+        return {"messages": [user_input[0]],"tool_called":response['tool_called'],'tool_selected':response['tool_selected'],'tool_name':response['tool_name']}
 
 
 from fastmcp import Client
@@ -103,7 +149,7 @@ def tool_list(state: ChatState):
     tools=asyncio.run(main())
     global_tool_list.clear()
     for t in tools:
-        global_tool_list.append(t)
+        global_tool_list.append({"name":t.name,"description":t.description,"inputSchema":t.inputSchema['properties']})
     return {'tools_list': tools}
 
 def tool_condition(state: ChatState):
@@ -116,11 +162,11 @@ def tool_condition(state: ChatState):
 
 async def tool_call_main(state: ChatState):
           async with Client("server.py") as client:
-               tool_name=state['tool_selected'][0]['name']
-               inputSchema = {k: v for k, v in state['tool_selected'][0].items() if k != 'name'}
-               print("Invoking tool:", tool_name, "with input schema:", inputSchema)
-               result = await client.call_tool(name=tool_name,arguments=inputSchema)
-          return result,tool_name,inputSchema
+            #    tool_name=state['tool_selected']['name']
+            #    inputSchema = {k: v for k, v in state['tool_selected']['inputSchema'].items() if k != 'name'}
+            #    print("Invoking tool:", tool_name, "with input schema:", inputSchema)
+               result = await client.call_tool(name=state['tool_name'],arguments=state['tool_selected'])
+          return result,state['tool_name'],state['tool_selected']
 
 
 def tool_call(state: ChatState):
@@ -169,7 +215,7 @@ def retrieve_all_threads():
 def invoke_workflow(data: UserInput,user_id: str):
     config = {"configurable": {"thread_id": user_id+"@"+data.id}}
 
-    response=workflow.invoke({'messages':data.user_input,'user_id':user_id}, config=config)
+    response=workflow.invoke({'messages':[HumanMessage(content=data.user_input)],'user_id':user_id}, config=config)
     item = response.get('messages', [])
     # print("Final response:", item)
     response['messages'] = item[::-1]  # Reverse the messages list to have the latest message first

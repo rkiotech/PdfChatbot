@@ -16,15 +16,40 @@ def special_add(a: int, b: int):
     """Add two numbers together. a and b are integers."""
     return a + b
 
-# @mcp.tool
-# def bring_todo_item(id: int):
-#     """To fetch an item, use the bring_todo_item tool with the parameter item (integer)."""
-#     response=requests.get(f"https://jsonplaceholder.typicode.com/todos/{id}")
-#     if response.status_code != 200:
-#         return "Item not found."
-#     data = response.json()
-#     item = data.get("title", "No title found.")
-#     return f"Here is your to-do item: {item}"
+@mcp.tool
+def bring_todo_item(id: int):
+    """To fetch an item, use the bring_todo_item tool with the parameter item (integer)."""
+    response=requests.get(f"https://jsonplaceholder.typicode.com/todos/{id}")
+    if response.status_code != 200:
+        return "Item not found."
+    data = response.json()
+    item = data.get("title", "No title found.")
+    return f"Here is your to-do item: {item}"
+@mcp.tool
+def get_file_path(name: str) -> str:
+    """Get the file path of a given file name in the current directory."""
+    current_directory = os.getcwd()
+    file_path = os.path.join(current_directory, name)
+    if os.path.isfile(file_path):
+        return file_path
+    else:
+        return "File not found."
+
+@mcp.tool
+def read_file(file_path: str):
+    """Read the content of a file
+     Args:
+        file_path (string): The path of the file to read.
+    """
+    print(file_path)
+    try:
+        with open(file_path, 'r') as file:
+            content = file.read()
+        return content
+    except FileNotFoundError:
+        return "File not found."
+    except Exception as e:
+        return str(e)
 
 if __name__ == "__main__":
     mcp.run(transport="stdio")
