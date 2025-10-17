@@ -7,7 +7,7 @@ from models.Prompt import Prompt
 from typing import TypedDict, Annotated
 from langchain_core.messages import BaseMessage
 from sarvamai import SarvamAI
-
+from langgraph.types import interrupt,Command
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.checkpoint.sqlite import SqliteSaver
 import sqlite3
@@ -18,7 +18,18 @@ from typing import Literal,Union
 from pydantic import BaseModel, Field
 from langchain_core.output_parsers import PydanticOutputParser
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 app = FastAPI()
+origins = [
+    "http://localhost:3000",]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 class RandomNumberInput(BaseModel):
     pass
@@ -86,11 +97,25 @@ def convert_messages_to_dict(messages):
             # fallback for system or unknown message types
             formatted.append({"role": "system", "content": msg.content})
     return formatted
+
+def approval_node(state: ChatState):
+    approved=interrupt()
+    if approved:
+        return Command("proceed")
+    else:
+        return Command("stop")
 def chat_node(state: ChatState):
     user_input = state['messages']
+    approved=interrupt("approval require")
+    # if approved is not None:
+    print("Approval received in chat node:", approved)
+    if not approved:
+        return {"messages": [user_input[0], AIMessage(content="access denied")]}
+
+    # print("User approval status:", approved)
     tools=state['tools_list']
     # user_input=convert_messages_to_dict(user_input)
-    print("User input:", user_input)
+    # print("User input:", user_input)
     # tool_info = [f"ID of tool:{idx} - tool name: {t.name} — tool description: {t.description} — input_schema: {t.inputSchema['properties']}" for idx,t in enumerate(tools_list)]
     # tools = "\n".join(tool_info)
     # print("Available tools:", tools)
@@ -99,29 +124,22 @@ def chat_node(state: ChatState):
     # ans=sarvam_llm(api_key="sk_e9hrwjet_SJrtYF4VYTYd474dsVN5Krd4",prompt=user_input)
     # print("Sarvam LLM response:", ans)
     prompt_text= """
-You are given these tools:
-{tools}
 
-Each tool has a specific input schema. 
-When you output your result, make sure your "input_schema" strictly follows the tool's defined schema. 
-Do not create new keys or arrays.
-RULE:
-if use same variable name that mentions in input schema of tool.
-if the user query is not related to any tool then do not call any tool and give answer
-If thier is required to call multiple tools then call respectively to provide answer
-Retrive file path if user want to read file
-Read file at given path and give content of file if user give path of file
+    Document context is provided within {context}.
+    Chat history so far is also provided within {history}.
+    You are an AI assisant.answer the following user query with given :
+    {user_input}
 
-Now answer the following user query using the provided tools if necessary:
-{user_input}
-
-"""
+    """
     # my_prompt="""give answer {user_input}"""
     # prompt_text= f"Give name of tool that can be possibly use for given user query  tools:{{tools}} user query : {user_input[-1].content}"
 
-    prompt=Prompt(prompt_text,parser=parser,input_variables=["tools","user_input"])
-    model=NormalModel(api_key="sk_e9hrwjet_SJrtYF4VYTYd474dsVN5Krd4",prompt=prompt)
-    response=model.invoke(user_input=user_input,tools=tools)
+    
+    model=NormalModel(api_key="sk_e9hrwjet_SJrtYF4VYTYd474dsVN5Krd4")
+    model=model.bind_tools(tools)
+    model.set_prompt(prompt_text=prompt_text,parser=parser)
+    
+    response=model.invoke(user_input=user_input[-1],context="",history=user_input)
 
     response=response.replace('```json','')
     response=response.replace('```','')
@@ -185,6 +203,7 @@ graph.add_edge(START, 'list_tools')
 graph.add_edge('list_tools', 'chat_node')
 
 graph.add_conditional_edges('chat_node', tool_condition)
+
 graph.add_edge('tool_call', END)
 
 graph.add_edge("chat_node", END)
@@ -196,6 +215,7 @@ checkpointer = SqliteSaver(conn=conn)
 
 
 workflow = graph.compile(checkpointer=checkpointer)
+
 print(workflow)
 class QueryId(BaseModel):
       id: str = Field(..., example="1")
@@ -213,12 +233,17 @@ def retrieve_all_threads():
     return list(all_threads)
 @app.post("/invoke/{user_id}")
 def invoke_workflow(data: UserInput,user_id: str):
+    print("Invoking workflow for user_id:", user_id, "with data:", data)
     config = {"configurable": {"thread_id": user_id+"@"+data.id}}
 
     response=workflow.invoke({'messages':[HumanMessage(content=data.user_input)],'user_id':user_id}, config=config)
+    print("interupted response:", response.get("__interrupt__"))
+    if response.get("__interrupt__"):
+        print("Workflow was interrupted.")
+        return {"status": "approval_required","config": config}
     item = response.get('messages', [])
     # print("Final response:", item)
-    response['messages'] = item[::-1]  # Reverse the messages list to have the latest message first
+    response['messages'] = item[-1]  # Reverse the messages list to have the latest message first
     return response
 @app.post("/history/{user_id}")
 def invoke_workflow(data: QueryId,user_id: str):
@@ -231,13 +256,31 @@ def invoke_workflow(data: QueryId,user_id: str):
     config = {"configurable": {"thread_id": user_id+"@"+data.id}}
 
     state=list(workflow.get_state(config=config))
+    print("Loaded conversation state:", state)
     return state[0].get('messages',[])
 @app.get("/all_threads")
 def invoke_workflow():
     threads = retrieve_all_threads()
     return threads
 
+@app.post("/approved/{user_id}")
+def invoke_workflow(data: QueryId,user_id: str):
+    config = {"configurable": {"thread_id": user_id+"@"+data.id}}
 
+    response = workflow.invoke(Command(resume=True), config=config)
+    item = response.get('messages', [])
+    # print("Final response:", item)
+    response['messages'] = item[-1]  # Reverse the messages list to have the latest message first
+    return response
+@app.post("/decline/{user_id}")
+def invoke_workflow(data: QueryId,user_id: str):
+    config = {"configurable": {"thread_id": user_id+"@"+data.id}}
+    
+    response = workflow.invoke(Command(resume=False), config=config)
+    item = response.get('messages', [])
+    # print("Final response:", item)
+    response['messages'] = item[-1]  # Reverse the messages list to have the latest message first
+    return response
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8000)
